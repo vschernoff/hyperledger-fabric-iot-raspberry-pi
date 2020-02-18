@@ -1,0 +1,16 @@
+#
+# Copyright Altoros 2017 All Rights Reserved.
+#
+# ---------------------------------------------------------------------------
+# "OrdererOrgs" - Definition of organizations managing orderer nodes
+# ---------------------------------------------------------------------------
+OrdererOrgs:
+  # ---------------------------------------------------------------------------
+  # Orderer
+  # ---------------------------------------------------------------------------
+  - Name: Orderer
+    Domain: ${DOMAIN}
+    Template:
+      Count: ${ORGS_COUNT}
+    Specs:
+      - Hostname: orderer

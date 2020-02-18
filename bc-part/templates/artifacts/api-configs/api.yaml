@@ -1,0 +1,28 @@
+org:
+  admin: Admin
+  name: ${ORG_NAME}
+user:
+  name: User1
+hlfiot:
+  peers:
+  - ${ORG_NAME}/peer0
+  channel: ${CHANNEL}
+  chaincode: ${CHAINCODE}
+ca:
+  url: ca.${ORG_NAME}.${DOMAIN}:7054
+orderer:
+  url: orderer0.${DOMAIN}:7050
+  tls: true
+  tlsCertFile: ./crypto-config/ordererOrganizations/${DOMAIN}/tlsca/tlsca.${DOMAIN}-cert.pem
+  tlsServerName: orderer0.${DOMAIN}
+peers:
+  hlfiot/peer0:
+    url: peer0.${ORG_NAME}.${DOMAIN}:7051
+    tls: true
+    tlsCertFile: ./crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/tlsca/tlsca.${DOMAIN}.${ORG_NAME}-cert.pem
+    tlsServerName: peer0.${ORG_NAME}.${DOMAIN}
+  device/peer0:
+    url: peer0.${ORG_NAME}.${DOMAIN}:7051
+    tls: true
+    tlsCertFile: ./crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/tlsca/tlsca.${DOMAIN}.${ORG_NAME}-cert.pem
+    tlsServerName: peer0.${ORG_NAME}.${DOMAIN}

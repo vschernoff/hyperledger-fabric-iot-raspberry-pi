@@ -1,0 +1,5 @@
+.idea
+/artifacts
+/docker-compose
+.tmp
+node_modules

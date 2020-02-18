@@ -1,0 +1,8 @@
+---
+files_to_rsync_orderer:
+  - from: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/msp"
+    to: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}"
+  - from: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/tls/ca.crt"
+    to: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/tls"
+  - from: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/msp/tlscacerts/tlsca.{{ org }}.{{ domain }}-cert.pem"
+    to: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/msp/tlscacerts"

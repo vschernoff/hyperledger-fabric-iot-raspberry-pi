@@ -1,0 +1,13 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "z+25lnpSV78eOZ7vZT4Vb8a+rfY=",
+			"path": "github.com/stianeikeland/go-rpio",
+			"revision": "a36b96d0b1a40b37017d64875275e7e6312408c7",
+			"revisionTime": "2019-02-14T21:39:46Z"
+		}
+	],
+	"rootPath": "raspberry-boot-script"
+}

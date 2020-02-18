@@ -1,0 +1,6 @@
+---
+files_to_rsync_nodes_phase1:
+  - from: "crypto-config/ordererOrganizations/{{ domain }}/orderers"
+    to: "crypto-config/ordererOrganizations/{{ domain }}/"
+  - from: "channel"
+    to: ""

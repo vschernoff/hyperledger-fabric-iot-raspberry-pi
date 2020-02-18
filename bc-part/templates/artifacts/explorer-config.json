@@ -1,0 +1,72 @@
+{
+  "name": "first-network",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "client": {
+    "tlsEnable": true,
+    "adminUser": "${EXPLORER_USER}",
+    "adminPassword": "${EXPLORER_PASSWORD}",
+    "enableAuthentication": false,
+    "organization": "${ORG_NAME}",
+    "connection": {
+      "timeout": {
+        "peer": {
+          "endorser": "300"
+        },
+        "orderer": "300"
+      }
+    }
+  },
+  "channels": {
+    % for channel in CHANNELS:
+      % if ORG_NAME in channel['participants']:
+        "${channel['name']}": {
+            "peers": {
+                  % for o in channel['participants']:
+              "peer0.${o}.${DOMAIN}": {}
+                    % if o != channel['participants'][-1]:
+                      ,
+                    % endif
+                  % endfor
+                },
+            "connection": {
+              "timeout": {
+                "peer": {
+                  "endorser": "6000",
+                  "eventHub": "6000",
+                  "eventReg": "6000"
+                }
+              }
+            }
+        }
+        % if channel != CHANNELS[-1]:
+          ,
+        % endif
+      % endif
+    % endfor
+},
+  "organizations": {
+    "${ORG_NAME}MSP": {
+      "mspid": "${ORG_NAME}MSP",
+      "fullpath": true,
+      "adminPrivateKey": {
+        "path": "/fabric/crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/users/Admin@${ORG_NAME}.${DOMAIN}/msp/keystore/server.key"
+      },
+      "signedCert": {
+        "path": "/fabric/crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/users/Admin@${ORG_NAME}.${DOMAIN}/msp/signcerts/Admin@${ORG_NAME}.${DOMAIN}-cert.pem"
+      }
+    }
+  },
+  "peers": {
+    "peer0.${ORG_NAME}.${DOMAIN}": {
+      "tlsCACerts": {
+        "path": "/fabric/crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/peers/peer0.${ORG_NAME}.${DOMAIN}/tls/ca.crt"
+      },
+      "url": "grpcs://peer0.${ORG_NAME}.${DOMAIN}:7051",
+      "eventUrl": "grpcs://peer0.${ORG_NAME}.${DOMAIN}:7053",
+      "grpcOptions": {
+        "ssl-target-name-override": "peer0.${ORG_NAME}.${DOMAIN}"
+      }
+    }
+  }
+}

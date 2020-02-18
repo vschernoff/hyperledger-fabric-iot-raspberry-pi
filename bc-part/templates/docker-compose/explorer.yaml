@@ -1,0 +1,38 @@
+# TODO: add to network.py, not used
+
+version: '2'
+volumes:
+  explorer-db.${DOMAIN}:
+  explorer.${DOMAIN}:
+services:
+  explorer-db.${DOMAIN}:
+    image: hyperledger/explorer-db:0.3.9.3
+    container_name: explorer-db.${DOMAIN}
+    environment:
+      # hyperledger explorer configs (used in migration scripts)
+      - DATABASE_DATABASE=fabricexplorer
+      - DATABASE_USERNAME=hppoc
+      - DATABASE_PASSWORD=password032
+      # postgresql configs:
+      - POSTGRES_USER=root
+    volumes:
+      - explorer-db.${DOMAIN}:/var/lib/postgresql/data
+
+  explorer.${DOMAIN}:
+    image: hyperledger/explorer:0.3.9.3
+    container_name: explorer.${DOMAIN}
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_USERNAME=hppoc
+      - DATABASE_PASSWD=password032
+      - DISCOVERY_AS_LOCALHOST=false
+    volumes:
+      - ../artifacts/crypto-config:/fabric/crypto-config:ro
+      - explorer.${DOMAIN}:/tmp/crypto
+      - ../artifacts/explorer-config.json:/opt/explorer/app/platform/fabric/connection-profile/first-network.json:ro
+    ports:
+      - ${EXPLORER_PORT}:8080
+    links:
+      - explorer-db.${DOMAIN}:db
+    depends_on:
+      - explorer-db.${DOMAIN}

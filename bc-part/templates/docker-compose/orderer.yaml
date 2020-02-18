@@ -1,0 +1,39 @@
+#
+# Copyright Altoros. All Rights Reserved.
+#
+
+version: '2'
+
+volumes:
+  orderer${ORG_N}.${DOMAIN}:
+
+networks:
+  ${NETWORK}:
+
+services:
+  orderer${ORG_N}.${DOMAIN}:
+    container_name: orderer${ORG_N}.${DOMAIN}
+    image: hyperledger/fabric-orderer:${FABRIC_VERSION}
+    restart: always
+    environment:
+      - ORDERER_GENERAL_LOGLEVEL=debug
+      - ORDERER_GENERAL_LISTENADDRESS=0.0.0.0
+      - ORDERER_GENERAL_GENESISMETHOD=file
+      - ORDERER_GENERAL_GENESISFILE=/etc/hyperledger/configtx/genesis.block
+      - ORDERER_GENERAL_LOCALMSPID=OrdererMSP
+      - ORDERER_GENERAL_LOCALMSPDIR=/etc/hyperledger/crypto/orderer/msp
+      - ORDERER_GENERAL_TLS_ENABLED=true
+      - ORDERER_GENERAL_TLS_PRIVATEKEY=/etc/hyperledger/crypto/orderer/tls/server.key
+      - ORDERER_GENERAL_TLS_CERTIFICATE=/etc/hyperledger/crypto/orderer/tls/server.crt
+      - ORDERER_GENERAL_TLS_ROOTCAS=[/etc/hyperledger/crypto/orderer/tls/ca.crt]
+      - ORDERER_GENERAL_CLUSTER_CLIENTCERTIFICATE=/etc/hyperledger/crypto/orderer/tls/server.crt
+      - ORDERER_GENERAL_CLUSTER_CLIENTPRIVATEKEY=/etc/hyperledger/crypto/orderer/tls/server.key
+      - ORDERER_GENERAL_CLUSTER_ROOTCAS=[/etc/hyperledger/crypto/orderer/tls/ca.crt]
+    working_dir: /etc/hyperledger
+    command: orderer
+    volumes:
+        - ../../artifacts/channel:/etc/hyperledger/configtx
+        - ../../artifacts/crypto-config/ordererOrganizations/${DOMAIN}/orderers/orderer${ORG_N}.${DOMAIN}/:/etc/hyperledger/crypto/orderer
+        - orderer${ORG_N}.${DOMAIN}:/var/hyperledger/production/orderer
+    networks:
+      - ${NETWORK}

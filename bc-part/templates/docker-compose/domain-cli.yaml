@@ -1,0 +1,17 @@
+#
+# Copyright Altoros. All Rights Reserved.
+#
+
+version: '2'
+
+networks:
+  ${NETWORK}:
+
+services:
+  cli.${DOMAIN}:
+    container_name: cli.${DOMAIN}
+    extends:
+      file: base.yaml
+      service: cli-base
+    networks:
+      - ${NETWORK}

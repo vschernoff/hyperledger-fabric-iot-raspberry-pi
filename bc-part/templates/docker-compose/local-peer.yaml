@@ -1,0 +1,11 @@
+#
+# Copyright Altoros. All Rights Reserved.
+#
+
+version: '2'
+
+services:
+  peer0.${ORG_NAME}.${DOMAIN}:
+    ports:
+      - ${ORG['PEER0_PORT']}:7051
+      - ${ORG['PEER0_EVENT_PORT']}:7053

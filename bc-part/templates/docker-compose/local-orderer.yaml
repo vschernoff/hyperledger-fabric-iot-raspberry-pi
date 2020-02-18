@@ -1,0 +1,10 @@
+#
+# Copyright Altoros. All Rights Reserved.
+#
+
+version: '2'
+
+services:
+  orderer.${DOMAIN}:
+    ports:
+      - 7050:7050

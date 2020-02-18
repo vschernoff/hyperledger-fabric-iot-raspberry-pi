@@ -1,0 +1,167 @@
+name: "basic"
+#
+# Schema version of the content. Used by the SDK to apply the corresponding parsing rules.
+#
+version: 1.0.0
+
+#
+# The client section used by GO SDK.
+#
+client:
+
+  # Which organization does this application instance belong to? The value must be the name of an org
+  # defined under "organizations"
+  organization: ${ORG_NAME}
+
+  logging:
+    level: info
+
+  # Root of the MSP directories with keys and certs.
+  cryptoconfig:
+    path: ./crypto-config
+
+  # Some SDKs support pluggable KV stores, the properties under "credentialStore"
+  # are implementation specific
+  credentialStore:
+    path: /tmp/fabric-api-store
+
+    # [Optional]. Specific to the CryptoSuite implementation used by GO SDK. Software-based implementations
+    # requiring a key store. PKCS#11 based implementations does not.
+    cryptoStore:
+      path: /tmp/fabric-api-msp
+
+    # BCCSP config for the client. Used by GO SDK.
+  BCCSP:
+    security:
+      enabled: true
+      default:
+        provider: "SW"
+      hashAlgorithm: "SHA2"
+      softVerify: true
+      level: 256
+
+  tlsCerts:
+    # [Optional]. Use system certificate pool when connecting to peers, orderers (for negotiating TLS) Default: false
+    systemCertPool: false
+
+    # [Optional]. Client key and cert for TLS handshake with peers and orderers
+    client:
+      keyfile:
+      certfile:
+
+#
+# list of participating organizations in this network
+#
+organizations:
+% for o in ORG_NAMES:
+  ${o}:
+    mspid: ${o}MSP
+    cryptoPath: peerOrganizations/${o}.${DOMAIN}/users/{userName}@${o}.${DOMAIN}/msp
+    peers:
+      - peer0.${o}.${DOMAIN}
+
+    # [Optional]. Certificate Authorities issue certificates for identification purposes in a Fabric based
+    # network. Typically certificates provisioning is done in a separate process outside of the
+    # runtime network. Fabric-CA is a special certificate authority that provides a REST APIs for
+    # dynamic certificate management (enroll, revoke, re-enroll). The following section is only for
+    # Fabric-CA servers.
+    certificateAuthorities:
+      - ca.${o}.${DOMAIN}
+
+% endfor
+
+#
+# List of orderers to send transaction and channel create/update requests to. For the time
+# being only one orderer is needed. If more than one is defined, which one get used by the
+# SDK is implementation specific. Consult each SDK's documentation for its handling of orderers.
+#
+orderers:
+  orderer.${DOMAIN}:
+    url: orderer.${DOMAIN}:7050
+
+    # these are standard properties defined by the gRPC library
+    # they will be passed in as-is to gRPC client constructor
+    grpcOptions:
+      ssl-target-name-override: orderer.${DOMAIN}
+      # These parameters should be set in coordination with the keepalive policy on the server,
+      # as incompatible settings can result in closing of connection.
+      # When duration of the 'keep-alive-time' is set to 0 or less the keep alive client parameters are disabled
+      keep-alive-time: 0s
+      keep-alive-timeout: 20s
+      keep-alive-permit: false
+      fail-fast: false
+      # allow-insecure will be taken into consideration if address has no protocol defined, if true then grpc or else grpcs
+      allow-insecure: false
+
+    tlsCACerts:
+      # Certificate location absolute path
+      path: ./crypto-config/ordererOrganizations/${DOMAIN}/tlsca/tlsca.${DOMAIN}-cert.pem
+#
+# List of peers to send various requests to, including endorsement, query
+# and event listener registration.
+#
+peers:
+%for o in ORG_NAMES:
+  peer0.${o}.${DOMAIN}:
+    # this URL is used to send endorsement and query requests
+    url: peer0.${o}.${DOMAIN}:7051
+    # eventUrl is only needed when using eventhub (default is delivery service)
+    eventUrl: peer0.${o}.${DOMAIN}:7053
+
+    grpcOptions:
+      ssl-target-name-override: peer0.${o}.${DOMAIN}
+      # These parameters should be set in coordination with the keepalive policy on the server,
+      # as incompatible settings can result in closing of connection.
+      # When duration of the 'keep-alive-time' is set to 0 or less the keep alive client parameters are disabled
+      keep-alive-time: 0s
+      keep-alive-timeout: 20s
+      keep-alive-permit: false
+      fail-fast: false
+      # allow-insecure will be taken into consideration if address has no protocol defined, if true then grpc or else grpcs
+      allow-insecure: false
+
+    tlsCACerts:
+      # Certificate location absolute path
+      path: ./crypto-config/peerOrganizations/${o}.${DOMAIN}/tlsca/tlsca.${o}.${DOMAIN}-cert.pem
+
+%endfor
+
+
+#
+# Fabric-CA is a special kind of Certificate Authority provided by Hyperledger Fabric which allows
+# certificate management to be done via REST APIs. Application may choose to use a standard
+# Certificate Authority instead of Fabric-CA, in which case this section would not be specified.
+#
+certificateAuthorities:
+
+entityMatchers:
+  peer:
+%for o in ORG_NAMES:
+    - pattern: (\w*)peer0.${o}.${DOMAIN}(\w*)
+      urlSubstitutionExp: peer0.${o}.${DOMAIN}:7051
+      eventUrlSubstitutionExp: peer0.${o}.${DOMAIN}:7053
+      sslTargetOverrideUrlSubstitutionExp: peer0.${o}.${DOMAIN}
+      mappedHost: peer0.${o}.${DOMAIN}
+%endfor
+
+
+  orderer:
+    - pattern: (\w*)orderer.${DOMAIN}(\w*)
+      urlSubstitutionExp: orderer.${DOMAIN}:7050
+      sslTargetOverrideUrlSubstitutionExp: orderer.${DOMAIN}
+      mappedHost: orderer.${DOMAIN}
+
+  certificateAuthorities:
+%for o in ORG_NAMES:
+    - pattern: (\w*)ca.${o}.${DOMAIN}(\w*)
+      urlSubstitutionExp: http://ca.${o}.${DOMAIN}:7054
+      mappedHost: ca.${o}.${DOMAIN}
+%endfor
+
+
+channels:
+  common:
+    peers:
+%for o in ORG_NAMES:
+      peer0.${o}.${DOMAIN}:
+%endfor

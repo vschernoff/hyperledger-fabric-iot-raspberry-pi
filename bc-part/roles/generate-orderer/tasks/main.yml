@@ -1,0 +1,32 @@
+---   
+  - name: Start cli orderer container
+    raw: "docker-compose --file {{ global_project_home }}/docker-compose/docker-compose-{{ domain }}.yaml up -d 'cli.{{ domain }}'"
+
+  - name: Generating crypto material with cryptogen
+    raw: 'docker exec "cli.{{ domain }}" bash -c "cryptogen generate --config=cryptogen-{{ domain }}.yaml"'
+
+  - name: Generating orderer genesis block with configtxgen
+    raw: 'docker exec "cli.{{ domain }}" configtxgen -profile OrdererGenesis -outputBlock ./channel/genesis.block'
+
+  - name: Changing artifacts file ownership
+    raw: 'docker exec "cli.{{ domain }}" bash -c "chown -R {{ ansible_user_uid }}:{{ ansible_user_gid }} ."'
+
+  - name: Generating channels config transactions
+    raw: 'docker exec "cli.{{ domain }}" configtxgen -profile "{{ item.name }}" -outputCreateChannelTx "./channel/{{ item.name }}.tx" -channelID "{{ item.name }}"'
+    loop: "{{ global_channels }}"
+    when: "global_channels is defined"
+
+  - name: Create all folders for rsync..
+    file:
+      path: "./artifacts/{{ item.to }}"
+      state: directory
+    loop: "{{ files_to_rsync_nodes_phase1 }}"
+    delegate_to: localhost
+
+  - name: Synchronize generated block files (artifacts)
+    synchronize: 
+      src: "{{ global_project_home }}/artifacts/{{ item.from }}" 
+      dest: "./artifacts/{{ item.to }}"
+      mode: pull 
+      recursive: yes
+    loop: "{{ files_to_rsync_nodes_phase1 }}"

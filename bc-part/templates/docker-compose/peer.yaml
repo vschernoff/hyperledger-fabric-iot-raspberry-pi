@@ -1,0 +1,162 @@
+#
+# Copyright Altoros. All Rights Reserved.
+#
+
+version: '2'
+
+volumes:
+  peer0.${ORG_NAME}.${DOMAIN}:
+% if "explorer" in ORG['node_roles']:
+  explorer-db.${ORG_NAME}.${DOMAIN}:
+  explorer.${ORG_NAME}.${DOMAIN}:
+% endif
+
+
+
+networks:
+  ${NETWORK}:
+
+services:
+% if "explorer" in ORG['node_roles']:
+  # ======== EXPLORER ========
+  explorer-db.${ORG_NAME}.${DOMAIN}:
+    image: hyperledger/explorer-db:0.3.9.3
+    container_name: explorer-db.${ORG_NAME}.${DOMAIN}
+    environment:
+      # hyperledger explorer configs (used in migration scripts)
+      - DATABASE_DATABASE=fabricexplorer
+      - DATABASE_USERNAME=hppoc
+      - DATABASE_PASSWORD=password032
+      # postgresql configs:
+      - POSTGRES_USER=root
+    volumes:
+      - explorer-db.${ORG_NAME}.${DOMAIN}:/var/lib/postgresql/data
+    networks:
+      - ${NETWORK}
+
+  explorer.${ORG_NAME}.${DOMAIN}:
+    image: hyperledger/explorer:0.3.9.3
+    container_name: explorer.${ORG_NAME}.${DOMAIN}
+    environment:
+      - DATABASE_HOST=db
+      - DATABASE_USERNAME=hppoc
+      - DATABASE_PASSWD=password032
+      - DISCOVERY_AS_LOCALHOST=false
+    volumes:
+      - ../../artifacts/crypto-config:/fabric/crypto-config:ro
+      - explorer.${ORG_NAME}.${DOMAIN}:/tmp/crypto
+      - ../../artifacts/${ORG_NAME}/explorer-config.json:/opt/explorer/app/platform/fabric/connection-profile/first-network.json:ro
+    ports:
+      - ${EXPLORER_PORT}:8080
+    links:
+      - explorer-db.${ORG_NAME}.${DOMAIN}:db
+    depends_on:
+      - explorer-db.${ORG_NAME}.${DOMAIN}
+    networks:
+      - ${NETWORK}
+% endif
+  ca.${ORG_NAME}.${DOMAIN}:
+    container_name: ca.${ORG_NAME}.${DOMAIN}
+    image: hyperledger/fabric-ca:${FABRIC_VERSION}
+    environment:
+      - FABRIC_CA_SERVER_CA_NAME=ca.${ORG_NAME}.${DOMAIN}
+      - FABRIC_CA_HOME=/etc/hyperledger/fabric-ca-server
+      - FABRIC_CA_SERVER_CA_CERTFILE=/etc/hyperledger/fabric-ca-server-config/ca.${ORG_NAME}.${DOMAIN}-cert.pem
+      - FABRIC_CA_SERVER_CA_KEYFILE=/etc/hyperledger/fabric-ca-server-config/server.key
+      - FABRIC_CA_SERVER_TLS_ENABLED=false
+      - FABRIC_CA_SERVER_TLS_CERTFILE=/etc/hyperledger/fabric-ca-server-config/ca.${ORG_NAME}.${DOMAIN}-cert.pem
+      - FABRIC_CA_SERVER_TLS_KEYFILE=/etc/hyperledger/fabric-ca-server-config/server.key
+    ports:
+      - ${ORG['ca_port']}:7054
+    command: sh -c 'fabric-ca-server start -b admin:adminpw -d'
+    volumes:
+      - ../../artifacts/crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/ca/:/etc/hyperledger/fabric-ca-server-config
+      - ../../artifacts/${ORG_NAME}/fabric-ca-server-config.yaml:/etc/hyperledger/fabric-ca-server/fabric-ca-server-config.yaml
+    networks:
+      - ${NETWORK}
+
+  peer0.${ORG_NAME}.${DOMAIN}:
+    container_name: peer0.${ORG_NAME}.${DOMAIN}
+    extends:
+      file: ../base.yaml
+      service: peer-base
+    environment:
+      - CORE_PEER_ID=peer0.${ORG_NAME}.${DOMAIN}
+      - CORE_PEER_LOCALMSPID=${ORG_NAME}MSP
+      - CORE_PEER_ADDRESS=peer0.${ORG_NAME}.${DOMAIN}:7051
+      - CORE_LEDGER_STATE_STATEDATABASE=CouchDB
+      - CORE_LEDGER_STATE_COUCHDBCONFIG_COUCHDBADDRESS=couchdb.${ORG_NAME}.${DOMAIN}:5984
+      - CORE_PEER_GOSSIP_EXTERNALENDPOINT=peer0.${ORG_NAME}.${DOMAIN}:7051
+    volumes:
+        - ../../artifacts/crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/peers/peer0.${ORG_NAME}.${DOMAIN}/:/etc/hyperledger/crypto/peer
+        - peer0.${ORG_NAME}.${DOMAIN}:/var/hyperledger/production
+    depends_on:
+      - couchdb.${ORG_NAME}.${DOMAIN}
+    networks:
+      - ${NETWORK}
+
+  cli.${ORG_NAME}.${DOMAIN}:
+    container_name: cli.${ORG_NAME}.${DOMAIN}
+    extends:
+      file: ../base.yaml
+      service: cli-base
+    environment:
+      - CORE_PEER_LOCALMSPID=${ORG_NAME}MSP
+    volumes:
+        - ../../artifacts/crypto-config/ordererOrganizations/${DOMAIN}/orderers/orderer.${DOMAIN}/tls:/etc/hyperledger/crypto/orderer/tls
+        - ../../artifacts/crypto-config/peerOrganizations/${ORG_NAME}.${DOMAIN}/users/Admin@${ORG_NAME}.${DOMAIN}:/etc/hyperledger/crypto/peer
+    networks:
+      - ${NETWORK}
+
+  api.${ORG_NAME}.${DOMAIN}:
+    container_name: api.${ORG_NAME}.${DOMAIN}
+    image: ${REST_API_IMAGE}
+    build:
+      dockerfile: ../../.tmp/fabric-rest-api-go/Dockerfile
+      context: ../../.tmp/fabric-rest-api-go
+    restart: always
+    volumes:
+      - ../../artifacts/crypto-config:/app/crypto-config
+      - ../../artifacts/${ORG_NAME}/api-configs:/app/configs
+    depends_on:
+      - peer0.${ORG_NAME}.${DOMAIN}
+    networks:
+      - ${NETWORK}
+
+  proxy.${ORG_NAME}.${DOMAIN}:
+    container_name: proxy.${ORG_NAME}.${DOMAIN}
+    image: nginx
+    restart: always
+    ports:
+      - ${ORG['www_port']}:${ORG['www_port']}
+    volumes:
+      - ../../artifacts/${ORG_NAME}/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - api.${ORG_NAME}.${DOMAIN}
+      - app.${ORG_NAME}.${DOMAIN}
+    networks:
+      - ${NETWORK}
+
+  couchdb.${ORG_NAME}.${DOMAIN}:
+    container_name: couchdb.${ORG_NAME}.${DOMAIN}
+    image: hyperledger/fabric-couchdb:0.4.10
+#    environment:
+#      - COUCHDB_USER=
+#      - COUCHDB_PASSWORD=
+    ports:
+      - ${ORG['couchdb_port']}:5984
+    networks:
+      - ${NETWORK}
+
+  app.${ORG_NAME}.${DOMAIN}:
+    container_name: app.${ORG_NAME}.${DOMAIN}
+    image: app:latest
+    build:
+      dockerfile: ../../app/Dockerfile
+      context: ../../app
+    restart: always
+    environment:
+      API_ENDPOINT: proxy.${ORG_NAME}.${DOMAIN}
+      ORG: ${ORG_NAME}
+    networks:
+      - ${NETWORK}

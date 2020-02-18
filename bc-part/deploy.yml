@@ -1,0 +1,288 @@
+---
+- hosts: localhost
+  tasks:
+
+  - name: Clean previously generated stuff
+    delegate_to: localhost
+    raw: "python3 network.py clean"
+
+  - name: Generate artifacts
+    delegate_to: localhost
+    raw: "python3 network.py generate"
+
+- hosts: nodes
+  tasks:
+
+    - name: Findout UID
+      raw: "id -u {{ ansible_user }}"
+      register: ansible_uid
+
+    - name: Findout GID
+      raw: "id -g {{ ansible_user }}"
+      register: ansible_gid
+
+    - set_fact:
+      ansible_user_uid: "{{ ansible_uid.stdout | int }}"
+      ansible_user_gid: "{{ ansible_gid.stdout | int }}"
+
+    - name: Clean all previous dockers, if any
+      raw: "docker rm -f $(docker ps -a | grep {{ global_domain }} | awk '{print $1};')"
+      ignore_errors: true
+
+    - name: Clean all docker volumes
+      raw: "docker volume rm $(docker volume ls -qf dangling=true)"
+      ignore_errors: true
+
+    - name: Clean all chaincode images
+      raw: "docker image rm $(docker image ls | grep {{ global_domain }} | awk '{print $1};')"
+      ignore_errors: true
+
+    - name: Delete & Create project home folder
+      become: true
+      file:
+        path: "{{ global_project_home }}"
+        state: "{{ item }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: yes
+      loop:
+        - "absent"
+        - "present"
+
+    - name: Delete local configs
+      delegate_to: localhost
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "./artifacts/crypto-config"
+        - "./artifacts/channel"
+
+    - name: Transfer configurations files
+      synchronize:
+        src: "{{ item.from }}"
+        dest: "{{ global_project_home }}/{{ item.to }}"
+        recursive: yes
+      loop:
+        - from: "docker-compose"
+          to: ""
+        - from: "chaincode"
+          to: ""
+        - from: "app"
+          to: ""
+        - from: "artifacts/{{ org }}"
+          to: "artifacts"
+        - from: "artifacts/*.yaml"
+          to: "artifacts"
+
+    - name: Build docker-images
+      raw: "docker-compose -f {{ global_project_home }}/{{ org }}/docker-compose.yaml build"
+
+    - name: Launch side cli-container
+      raw: "docker-compose -f {{ global_project_home }}/{{ org }}/utils.yml cliCryptogen up -d"
+
+    - name: Generate crypto material with cryptogen
+      raw: "docker exec 'cliCryptogen' bash -c 'cryptogen generate --config={{ org }}/cryptogen.yaml'"
+
+    - name: Changing artifacts ownership
+      raw: "docker exec 'cliCryptogen' bash -c 'chown -R {{ ansible_user_uid }}:{{ ansible_user_gid }} .'"
+
+    - name: Delete side cli-container
+      raw: "docker rm 'cliCryptogen'"
+
+    - name: Make sure local directories exist
+      file:
+        path: "./artifacts/{{ item.to }}"
+        state: directory
+      loop: "{{ files_to_rsync_orderer }}"
+      delegate_to: localhost
+
+    - name: Synchronize artifacts
+      synchronize:
+        src: "{{ global_project_home }}/artifacts/{{ item.from }}"
+        dest: "./artifacts/{{ item.to }}"
+        mode: pull
+        recursive: yes
+      loop: "{{ files_to_rsync_orderer }}"
+
+    - name: Synchronize artifacts back to peers
+      synchronize:
+        src: "./artifacts/crypto-config"
+        dest: "{{ fabric_starter_workdir }}"
+        recursive: yes
+
+    - name: Generate orderer artifacts
+      block:
+      - name: Start cli orderer container
+        raw: "docker-compose --file {{ global_project_home }}/docker-compose/docker-compose-{{ domain }}.yaml up -d 'cli.{{ domain }}'"
+
+      - name: Generating crypto material with cryptogen
+        raw: 'docker exec "cli.{{ domain }}" bash -c "cryptogen generate --config=cryptogen-{{ domain }}.yaml"'
+
+      - name: Generating orderer genesis block with configtxgen
+        raw: 'docker exec "cli.{{ domain }}" configtxgen -profile OrdererGenesis -outputBlock ./channel/genesis.block'
+
+      - name: Changing artifacts file ownership
+        raw: 'docker exec "cli.{{ domain }}" bash -c "chown -R {{ ansible_user_uid }}:{{ ansible_user_gid }} ."'
+
+      - name: Generating channels config transactions
+        raw: 'docker exec "cli.{{ domain }}" configtxgen -profile "{{ item.name }}" -outputCreateChannelTx "./channel/{{ item.name }}.tx" -channelID "{{ item.name }}"'
+        loop: "{{ global_channels }}"
+        when: "global_channels is defined"
+
+      - name: Create all folders for rsync..
+        file:
+          path: "./artifacts/{{ item.to }}"
+          state: directory
+        loop: "{{ files_to_rsync_nodes_phase1 }}"
+        delegate_to: localhost
+
+      - name: Synchronize generated block files (artifacts)
+        synchronize:
+          src: "{{ global_project_home }}/artifacts/{{ item.from }}"
+          dest: "./artifacts/{{ item.to }}"
+          mode: pull
+          recursive: yes
+        loop: "{{ files_to_rsync_nodes_phase1 }}"
+      when: "'root_orderer' in node_roles"
+
+    - name: Create all folders for rsync..
+      file:
+        path: "{{ global_project_home }}/artifacts/{{ item.to }}"
+        state: directory
+      loop: "{{ files_to_rsync_nodes_phase1 }}"
+      when: "'root_orderer' not in node_roles"
+
+    - name: Synchronize genrated block files (artifacts)
+      synchronize:
+        src: "./artifacts/{{ item.from }}"
+        dest: "{{ global_project_home }}/artifacts/{{ item.to }}"
+        recursive: yes
+      loop: "{{ files_to_rsync_nodes_phase1 }}"
+      when: "'root_orderer' not in node_roles"
+
+    - name: Rename generated private keys to server.key
+      shell: find {{ global_project_home }}/artifacts/crypto-config -iname "*_sk*" -exec bash -c 'mv $0 $(echo $0 | sed -e "s/[^/]*_sk/server.key/")' {} \;"
+
+    - name: Generating anchor peer updates for other channels, if defined
+      raw: 'docker exec -e FABRIC_CFG_PATH=/etc/hyperledger/artifacts "cli.{{ org }}.{{ domain }}" configtxgen -profile "{{ item.name }}" -outputAnchorPeersUpdate ./channel/{{ org }}MSPanchors-{{ item.name }}.tx -channelID "{{ item.name }}" -asOrg {{ org }}MSP'
+      loop: "{{ global_channels }}"
+      when: "global_channels is defined and org in item.participants"
+
+    - name: Changing artifacts ownership
+      raw: "docker exec 'cli.{{ org }}.{{ domain }}' bash -c 'chown -R {{ ansible_user_uid }}:{{ ansible_user_gid }} .'"
+
+    - name: Clean all help-scripts
+      file:
+        dest: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ global_project_home }}/start-node.sh"
+        - "{{ global_project_home }}/stop-node.sh"
+
+    - name: Start orderer
+      raw: "docker-compose -f {{ global_project_home }}/docker-compose/docker-compose-{{ domain }}.yaml up -d 2>&1"
+
+    - name: Generate init-script..
+      lineinfile:
+        path: "{{ global_project_home }}/start-node.sh"
+        line: "docker-compose -f {{ global_project_home }}/docker-compose/docker-compose-{{ domain }}.yaml up -d 2>&1"
+        create: yes
+
+    - name: Generate down-script..
+      lineinfile:
+        path: "{{ global_project_home }}/stop-node.sh"
+        insertbefore: BOF
+        line: "docker-compose -f {{ global_project_home }}/docker-compose/docker-compose-{{ domain }}.yaml down"
+        create: yes
+
+    - name: Let orderer start
+      raw: "docker logs orderer{{ orderer_id }}.{{ domain }}"
+      register: result
+      until: result.stdout.find("Starting Raft node") != -1
+      retries: 60
+      delay: 1
+
+    - name: Start docker containers
+      raw: "docker-compose -f {{ global_project_home }}/docker-compose/{{ org }}/docker-compose.yaml up -d 2>&1"
+
+    - name: Generate init-script..
+      lineinfile:
+        path: "{{ global_project_home }}/start-node.sh"
+        line: "docker-compose -f {{ global_project_home }}/docker-compose/{{ org }}/docker-compose.yaml up -d 2>&1"
+        create: yes
+
+    - name: Generate down-script..
+      lineinfile:
+        path: "{{ global_project_home }}/stop-node.sh"
+        insertbefore: BOF
+        line: "docker-compose -f {{ global_project_home }}/docker-compose/{{ org }}/docker-compose.yaml down"
+        create: yes
+
+    - name: Install chaincode
+      raw: "{{ item }}"
+      loop:
+        - "docker exec 'cli.{{ org }}.{{ domain }}' bash -c 'export CORE_PEER_ADDRESS=peer0.{{ org }}.{{ domain }}:7051 && peer chaincode install -n {{ item.chaincode.name }} -v {{ item.chaincode.version }} -p {% if item.chaincode.lang != 'golang' %} /opt/gopath/src/{{ item.chaincode.name }} {% else %} {{ item.chaincode.name }} {% endif %} -l {{ item.chaincode.lang }}'"
+      when: "global_channels is defined"
+
+    - name: Creating channels
+      block:
+
+      - name: Creating channels
+        raw: 'docker exec "cli.{{ org }}.{{ domain }}" bash -c "peer channel create -o orderer{{ orderer_id }}.{{ domain }}:7050 -c {{ item.name }} -f /etc/hyperledger/artifacts/channel/{{ item.name }}.tx --tls --cafile /etc/hyperledger/artifacts/crypto-config/ordererOrganizations/{{ domain }}/orderers/orderer{{ orderer_id }}.{{ domain }}/tls/ca.crt"'
+        loop: "{{ global_channels }}"
+        when: "org in item.participants[0]"
+
+      - name: Changing ownership of channel block files
+        raw: 'docker exec "cli.{{ org }}.{{ domain }}" bash -c "chown -R {{ ansible_user_uid }}:{{ ansible_user_gid }} ."'
+
+      - name: Synchronize genrated block files (artifacts)
+        synchronize: src="{{ global_project_home }}/artifacts/*.block" dest="./artifacts/" mode=pull recursive=yes
+        loop: "{{ global_channels }}"
+        when: "org in item.participants[0]"
+
+      - name: Synchronize generated block files (artifacts)
+        # become: true
+        synchronize: src="artifacts" dest="{{ global_project_home }}" recursive=yes
+        when: "org in item.participants"
+
+      - name: Joining other channels
+        raw: 'docker exec "cli.{{ org }}.{{ domain }}" bash -c "export CORE_PEER_ADDRESS=peer0.{{ org }}.{{ domain }}:7051 && peer channel join -b {{ item.name }}.block"'
+        loop: "{{ global_channels }}"
+        when: "org in item.participants"
+
+      - name: Instantiating chaincode for other channels with ensorsement policy, if any
+        raw: "docker exec cli.{{ org }}.{{ domain }} bash -c \
+        'export CORE_PEER_ADDRESS=peer0.{{ org }}.{{ domain }}:7051 && \
+        peer chaincode instantiate -n {{ item.chaincode.name }} \
+        -P \"{{ item.chaincode.policy }}\" \
+        -v {{ item.chaincode.version }} \
+        -c {{ item.chanicode.init | to_json }} \
+        -o orderer{{ orderer_id }}.{{ domain }}:7050 -C {{ item.name }} --tls \
+        --cafile /etc/hyperledger/artifacts/crypto-config/ordererOrganizations/{{ domain }}/orderers/orderer{{ orderer_id }}.{{ domain }}/tls/ca.crt\
+        {{ collections_config_param }} {{ collections_config_path }}'"
+        loop: "{{ global_channels }}"
+        when: "org in item.participants[0] and item.chaincode.policy != ''"
+
+      - name: Instantiating chaincode for other channels, if any
+        raw: "docker exec cli.{{ org }}.{{ domain }} bash -c \
+        'export CORE_PEER_ADDRESS=peer0.{{ org }}.{{ domain }}:7051 && \
+        peer chaincode instantiate -n {{ item.chaincode.name }} \
+        -v {{ item.chaincode.version }} \
+        -c {{ item.chanicode.init | to_json }} \
+        -o orderer{{ orderer_id }}.{{ domain }}:7050 -C {{ item.name }} --tls \
+        --cafile /etc/hyperledger/artifacts/crypto-config/ordererOrganizations/{{ domain }}/orderers/orderer{{ orderer_id }}.{{ domain }}/tls/ca.crt\
+        {{ collections_config_param }} {{ collections_config_path }}'"
+
+        loop: "{{ global_channels }}"
+        when: "org in item.participants[0] and item.chaincode.policy == ''"
+
+      - name: Changing ownership of channel block files
+        raw: 'docker exec "cli.{{ org }}.{{ domain }}" bash -c "chown -R {{ ansible_user_uid }}:{{ ansible_user_gid }} ."'
+
+      - name: Updating anchor peers
+        raw: 'docker exec "cli.{{ org }}.{{ domain }}" bash -c "peer channel update -o orderer{{ orderer_id }}.{{ domain }}:{{ orderer_port }} -c {{ item.name }} -f /etc/hyperledger/artifacts/channel/{{ org }}MSPanchors-{{ item.name }}.tx --tls  --cafile /etc/hyperledger/artifacts/crypto-config/ordererOrganizations/{{ domain }}/orderers/orderer{{ orderer_id }}.{{ domain }}/tls/ca.crt"'
+        loop: "{{ global_channels }}"
+        when: "org in item.participants"
+
+      when: "global_channels is defined"

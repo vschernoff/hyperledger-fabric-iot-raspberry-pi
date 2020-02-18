@@ -1,0 +1,23 @@
+---
+# Define private collections configuration
+collections_config_param: ""
+collections_config_name: ""
+collections_config_path: ""
+
+#collections_config_param: "--collections_config"
+#collections_config_name: "collections_config.json"
+#collections_config_path: "{{ chaincode }}/{{ chaincode_lang }}/{{ chaincode_common_name }}/{{ collections_config_name }}"
+
+files_to_rsync_orderer:
+  - from: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/msp"
+    to: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}"
+  - from: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/tls/ca.crt"
+    to: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/tls"
+  - from: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/msp/tlscacerts/tlsca.{{ org }}.{{ domain }}-cert.pem"
+    to: "crypto-config/peerOrganizations/{{ org }}.{{ domain }}/peers/peer0.{{ org }}.{{ domain }}/msp/tlscacerts"
+
+files_to_rsync_nodes_phase1:
+  - from: "crypto-config/ordererOrganizations/{{ domain }}/orderers"
+    to: "crypto-config/ordererOrganizations/{{ domain }}/"
+  - from: "channel"
+    to: ""

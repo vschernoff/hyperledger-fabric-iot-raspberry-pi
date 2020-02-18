@@ -1,0 +1,55 @@
+{
+	"comment": "",
+	"ignore": "test",
+	"package": [
+		{
+			"checksumSHA1": "RLTkKfXoEr0XL4lICo65RKqmU70=",
+			"path": "github.com/d2r2/go-dht",
+			"revision": "b6103ae97a4b34d2876c04261ed37fce8cbbcc2d",
+			"revisionTime": "2019-05-01T19:37:53Z"
+		},
+		{
+			"checksumSHA1": "AkTV/USUtaVhy5FqzM4naaFO/P4=",
+			"path": "github.com/d2r2/go-i2c",
+			"revision": "14f8dd4e89cea2507a048c4d626ce65fc8e06e17",
+			"revisionTime": "2018-11-13T11:46:21Z"
+		},
+		{
+			"checksumSHA1": "qUROYjf9KJjUr0tu3ol/zKZoSf0=",
+			"path": "github.com/d2r2/go-logger",
+			"revision": "9998a510495ea259b42200a610975913e4d1cacd",
+			"revisionTime": "2018-12-21T09:07:42Z"
+		},
+		{
+			"checksumSHA1": "TLoxvPmRyDnte/p4/VEk+hdIH3w=",
+			"path": "github.com/d2r2/go-shell",
+			"revision": "6fd313082bbfa04076f9132cb7182098c8f1e7dc",
+			"revisionTime": "2019-05-08T08:04:34Z"
+		},
+		{
+			"checksumSHA1": "CSPbwbyzqA6sfORicn4HFtIhF/c=",
+			"path": "github.com/davecgh/go-spew/spew",
+			"revision": "d8f796af33cc11cb798c1aaeb27a4ebc5099927d",
+			"revisionTime": "2018-08-30T19:11:22Z"
+		},
+		{
+			"checksumSHA1": "CoizPswqN4YjqSWL5xYX95wwu80=",
+			"path": "github.com/davecheney/gpio",
+			"revision": "a6de66e7e47065fca1a55c62c3f3cab3144694e6",
+			"revisionTime": "2016-09-12T02:49:57Z"
+		},
+		{
+			"checksumSHA1": "guarq7gE64TDmNXTUxHoODzIoqQ=",
+			"path": "github.com/tarm/serial",
+			"revision": "98f6abe2eb07edd42f6dfa2a934aea469acc29b7",
+			"revisionTime": "2018-08-30T18:53:46Z"
+		},
+		{
+			"checksumSHA1": "3MIBhaOhlaGUd/C7WtWDnS3JWSc=",
+			"path": "golang.org/x/sys/unix",
+			"revision": "d32e6e3b99c40f2bfaea45ea9596ed539eed1c0d",
+			"revisionTime": "2019-11-10T13:49:38Z"
+		}
+	],
+	"rootPath": "hlf-iot"
+}

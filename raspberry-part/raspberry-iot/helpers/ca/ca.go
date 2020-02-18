@@ -6,24 +6,33 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"hlf-iot/config"
-	"hlf-iot/helpers/httpwrapper"
+	"regexp"
 	"sync"
 )
+
+//response /ca/tbs-csr
+var responseTbsCsrRegex = regexp.MustCompile(`{"tbs_csr_bytes"([\s\S]*?)"}|{"tbs_csr_hash"([\s\S]*?)"}`)
+
+//response /ca/enroll-csr
+var responseEnrollCsrRegex = regexp.MustCompile(`{"user_cert"([\s\S]*?)"}`)
+
+//response /tx/proposal
+var responseProposalRegex = regexp.MustCompile(`{"proposal_bytes"([\s\S]*?)"}|{"proposal_hash"([\s\S]*?)"}`)
+
+//response /tx/prepare-broadcast
+var responseBroadcastPayloadRegex = regexp.MustCompile(`{"payload_bytes"([\s\S]*?)"}|{"payload_hash"([\s\S]*?)"}`)
 
 type caCreds struct {
 	Login    string
 	Password string
-	Email    string
 }
 
 type TbsCsrReq struct {
 	X     string `json:"x"`
 	Y     string `json:"y"`
 	Login string `json:"login"`
-	Email string `json:"email"`
 }
 
 type EnrollCsrReq struct {
@@ -100,49 +109,38 @@ func GetInstance() *Ca {
 		instance = &Ca{}
 		instance.CaCreds.Login = config.CA_LOGIN
 		instance.CaCreds.Password = config.CA_PASSWORD
-		instance.CaCreds.Email = config.GetCustomField(config.CA_CUSTOM_FIELD)
 	})
 	return instance
 }
 
 // Private key generation
-func (ca *Ca) GeneratePrivateKey() error {
+func (ca *Ca) GeneratePrivateKey() {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
-		return err
+		fmt.Println("ecdsa failed to generate private key")
 	}
 
 	ca.PrivateKey = privateKey
-
-	return nil
 }
 
 // Creates TBS CSR from public key and user data
-func (ca *Ca) TbsCsr() (*httpwrapper.SendElementStructure, error) {
-	if ca.PrivateKey.X == nil || len(ca.PrivateKey.X.Text(16)) == 0 {
-		return nil, errors.New("privateKey error")
-	}
-
-	if len(ca.CaCreds.Login) == 0 || len(ca.CaCreds.Email) == 0 {
-		return nil, errors.New("ca credentials are not initialized")
-	}
-
+func (ca *Ca) TbsCsr() *config.GprsSendElementStructure {
 	tbsCsrReqJson, _ := json.Marshal(&TbsCsrReq{
 		X:     ca.PrivateKey.X.Text(16),
 		Y:     ca.PrivateKey.Y.Text(16),
 		Login: ca.CaCreds.Login,
-		Email: ca.CaCreds.Email,
 	})
 
-	return &httpwrapper.SendElementStructure{
-		Data:     string(tbsCsrReqJson),
-		Url:      config.CA_TBS_CSR_URL,
-		CheckFcn: ca.CheckRequestTbsCsrToBC,
-	}, nil
+	return &config.GprsSendElementStructure{
+		Data:       string(tbsCsrReqJson),
+		Url:        config.CA_TBS_CSR_URL,
+		HttpAction: config.GPRS_HTTPACTION_POST,
+		CheckFcn:   ca.CheckRequestTbsCsrToBC,
+	}
 }
 
 // Sign TBS CSR
-func (ca *Ca) SignTbsCsr() error {
+func (ca *Ca) SignTbsCsr() {
 	hash, _ := hex.DecodeString(ca.TbsCsrResponse.TbsCsrHash)
 	r, s, err := ecdsa.Sign(rand.Reader, ca.PrivateKey, hash)
 	if err != nil {
@@ -151,38 +149,29 @@ func (ca *Ca) SignTbsCsr() error {
 
 	ca.TbsCsrSignature.R = r.Text(16)
 	ca.TbsCsrSignature.S = s.Text(16)
-
-	if len(ca.TbsCsrSignature.R) == 0 || len(ca.TbsCsrSignature.S) == 0 {
-		return errors.New("tbsCsrSignature error")
-	}
-
-	return nil
 }
 
 // Enroll with signed CSR
-func (ca *Ca) EnrollCsr() (*httpwrapper.SendElementStructure, error) {
-	enrollCsrReqJson, err := json.Marshal(&EnrollCsrReq{
+func (ca *Ca) EnrollCsr() *config.GprsSendElementStructure {
+	enrollCsrReqJson, _ := json.Marshal(&EnrollCsrReq{
 		Login:       ca.CaCreds.Login,
 		Password:    ca.CaCreds.Password,
 		TbsCsrBytes: ca.TbsCsrResponse.TbsCsrBytes,
 		R:           ca.TbsCsrSignature.R,
 		S:           ca.TbsCsrSignature.S,
 	})
-	if err != nil {
-		return nil, err
-	}
-
 	enrollCsrReqJsonStr := string(enrollCsrReqJson)
 
-	return &httpwrapper.SendElementStructure{
-		Data:     enrollCsrReqJsonStr,
-		Url:      config.CA_ENROLL_CSR_URL,
-		CheckFcn: ca.CheckRequestEnrollCsrToBC,
-	}, nil
+	return &config.GprsSendElementStructure{
+		Data:       enrollCsrReqJsonStr,
+		Url:        config.CA_ENROLL_CSR_URL,
+		HttpAction: config.GPRS_HTTPACTION_POST,
+		CheckFcn:   ca.CheckRequestEnrollCsrToBC,
+	}
 }
 
-func (ca *Ca) ProposalReq(fcn string, args []string) (*httpwrapper.SendElementStructure, error) {
-	proposalReqJson, err := json.Marshal(&ProposalReq{
+func (ca *Ca) ProposalReq(fcn string, args []string) *config.GprsSendElementStructure {
+	proposalReqJson, _ := json.Marshal(&ProposalReq{
 		Fcn:         fcn,
 		Args:        args,
 		ChaincodeId: config.CHAINCODE_ID,
@@ -190,169 +179,137 @@ func (ca *Ca) ProposalReq(fcn string, args []string) (*httpwrapper.SendElementSt
 		MspId:       config.MSP_ID,
 		UserCert:    ca.UserCertificate.Certificate,
 	})
-	if err != nil {
-		return nil, err
-	}
-
 	proposalReqJsonStr := string(proposalReqJson)
 
-	return &httpwrapper.SendElementStructure{
-		Data:     proposalReqJsonStr,
-		Url:      config.CA_PROPOSAL_URL,
-		CheckFcn: ca.CheckRequestProposalToBC,
-	}, nil
+	return &config.GprsSendElementStructure{
+		Data:       proposalReqJsonStr,
+		Url:        config.CA_PROPOSAL_URL,
+		HttpAction: config.GPRS_HTTPACTION_POST,
+		CheckFcn:   ca.CheckRequestProposalToBC,
+	}
 }
 
-func (ca *Ca) SignProposal() error {
-	hash, err := hex.DecodeString(ca.Proposal.ProposalHash)
-	if err != nil {
-		return err
-	}
-
+func (ca *Ca) SignProposal() {
+	hash, _ := hex.DecodeString(ca.Proposal.ProposalHash)
 	r, s, err := ecdsa.Sign(rand.Reader, ca.PrivateKey, hash)
 	if err != nil {
-		return err
+		fmt.Println(err)
 	}
 
 	ca.ProposalSignature.R = r.Text(16)
 	ca.ProposalSignature.S = s.Text(16)
-
-	return nil
 }
 
-func (ca *Ca) BroadcastPayloadReq() (*httpwrapper.SendElementStructure, error) {
-	broadcastPayloadReqJson, err := json.Marshal(&BroadcastPayloadReq{
+func (ca *Ca) BroadcastPayloadReq() *config.GprsSendElementStructure {
+	broadcastPayloadReqJson, _ := json.Marshal(&BroadcastPayloadReq{
 		ProposalBytes: ca.Proposal.ProposalBytes,
 		Peers:         config.EndorsementPeers,
 		R:             ca.ProposalSignature.R,
 		S:             ca.ProposalSignature.S,
 	})
-	if err != nil {
-		return nil, err
-	}
-
 	broadcastPayloadReqJsonStr := string(broadcastPayloadReqJson)
 
-	return &httpwrapper.SendElementStructure{
-		Data:     broadcastPayloadReqJsonStr,
-		Url:      config.CA_BROADCAST_PAYLOAD_URL,
-		CheckFcn: ca.CheckRequestBroadcastPayloadToBC,
-	}, nil
+	return &config.GprsSendElementStructure{
+		Data:       broadcastPayloadReqJsonStr,
+		Url:        config.CA_BROADCAST_PAYLOAD_URL,
+		HttpAction: config.GPRS_HTTPACTION_POST,
+		CheckFcn:   ca.CheckRequestBroadcastPayloadToBC,
+	}
 }
 
-func (ca *Ca) SignBroadcastPayload() error {
-	hash, err := hex.DecodeString(ca.BroadcastPayload.BroadcastPayloadHash)
-	if err != nil {
-		return err
-	}
-
+func (ca *Ca) SignBroadcastPayload() {
+	hash, _ := hex.DecodeString(ca.BroadcastPayload.BroadcastPayloadHash)
 	r, s, err := ecdsa.Sign(rand.Reader, ca.PrivateKey, hash)
 	if err != nil {
-		return err
+		fmt.Println(err)
 	}
 
 	ca.BroadcastPayloadSignature.R = r.Text(16)
 	ca.BroadcastPayloadSignature.S = s.Text(16)
-
-	return nil
 }
 
-func (ca *Ca) BroadcastReq() (*httpwrapper.SendElementStructure, error) {
-	broadcastReqJson, err := json.Marshal(&BroadcastReq{
+func (ca *Ca) BroadcastReq() *config.GprsSendElementStructure {
+	broadcastReqJson, _ := json.Marshal(&BroadcastReq{
 		PayloadBytes: ca.BroadcastPayload.BroadcastPayloadBytes,
 		R:            ca.BroadcastPayloadSignature.R,
 		S:            ca.BroadcastPayloadSignature.S,
 	})
-	if err != nil {
-		return nil, err
-	}
-
 	broadcastReqJsonStr := string(broadcastReqJson)
 
-	return &httpwrapper.SendElementStructure{
-		Data:     broadcastReqJsonStr,
-		Url:      config.CA_BROADCAST_URL,
-		CheckFcn: config.CheckInsertToBC,
-	}, nil
+	return &config.GprsSendElementStructure{
+		Data:       broadcastReqJsonStr,
+		Url:        config.CA_BROADCAST_URL,
+		HttpAction: config.GPRS_HTTPACTION_POST,
+		CheckFcn:   config.CheckInsertToBC,
+	}
 }
 
-func (ca *Ca) CheckRequestTbsCsrToBC(buffer string) (bool, error) {
-	fmt.Println("CheckRequestTbsCsrToBC output")
+func (ca *Ca) CheckRequestTbsCsrToBC(buffer string) bool {
+	fmt.Println("output")
 	fmt.Println(buffer)
+	response := responseTbsCsrRegex.FindAllStringSubmatch(buffer, -1)
+	if len(response) > 0 {
+		tbsCsrResponse := &TbsCsrResponse{}
+		if err := json.Unmarshal([]byte(response[0][0]), &tbsCsrResponse); err != nil {
+			fmt.Printf("unable to unmarshal CheckRequestTbsCsrToBC result: %s", err.Error())
+		}
+		ca.TbsCsrResponse = tbsCsrResponse
 
-	var check bool
-	tbsCsrResponse := &TbsCsrResponse{}
-	if err := json.Unmarshal([]byte(buffer), &tbsCsrResponse); err != nil {
-		return check, err
+		return true
 	}
 
-	ca.TbsCsrResponse = tbsCsrResponse
-	if len(ca.TbsCsrResponse.TbsCsrHash) > 0 {
-		check = true
-	} else {
-		check = false
-	}
-
-	return check, nil
+	return false
 }
 
-func (ca *Ca) CheckRequestEnrollCsrToBC(buffer string) (bool, error) {
+func (ca *Ca) CheckRequestEnrollCsrToBC(buffer string) bool {
 	fmt.Println("CheckRequestEnrollCsrToBC output")
 	fmt.Println(buffer)
+	response := responseEnrollCsrRegex.FindAllStringSubmatch(buffer, -1)
+	if len(response) > 0 {
+		userCertificate := &UserCertificate{}
+		if err := json.Unmarshal([]byte(response[0][0]), &userCertificate); err != nil {
+			fmt.Printf("unable to unmarshal CheckRequestEnrollCsrToBC result: %s", err.Error())
+		}
+		userCertificateByte, _ := config.B64Decode(userCertificate.Certificate)
+		userCertificate.Certificate = string(userCertificateByte)
+		ca.UserCertificate = userCertificate
 
-	var check bool
-	userCertificate := &UserCertificate{}
-	if err := json.Unmarshal([]byte(buffer), &userCertificate); err != nil {
-		return check, err
+		return true
 	}
 
-	userCertificateByte, err := config.B64Decode(userCertificate.Certificate)
-	if err != nil {
-		return check, err
-	}
-
-	userCertificate.Certificate = string(userCertificateByte)
-	ca.UserCertificate = userCertificate
-
-	if len(ca.UserCertificate.Certificate) > 0 {
-		check = true
-	} else {
-		check = false
-	}
-
-	return check, nil
+	return false
 }
 
-func (ca *Ca) CheckRequestProposalToBC(buffer string) (bool, error) {
-	var check bool
-	proposal := &Proposal{}
-	if err := json.Unmarshal([]byte(buffer), &proposal); err != nil {
-		return check, err
+func (ca *Ca) CheckRequestProposalToBC(buffer string) bool {
+	fmt.Println("CheckRequestProposalToBC output")
+	fmt.Println(buffer)
+	response := responseProposalRegex.FindAllStringSubmatch(buffer, -1)
+	if len(response) > 0 {
+		proposal := &Proposal{}
+		if err := json.Unmarshal([]byte(response[0][0]), &proposal); err != nil {
+			fmt.Printf("unable to unmarshal CheckRequestProposalToBC result: %s", err.Error())
+		}
+		ca.Proposal = proposal
+
+		return true
 	}
 
-	ca.Proposal = proposal
-	if len(ca.Proposal.ProposalHash) > 0 {
-		check = true
-	} else {
-		check = false
-	}
-
-	return check, nil
+	return false
 }
 
-func (ca *Ca) CheckRequestBroadcastPayloadToBC(buffer string) (bool, error) {
-	var check bool
-	broadcastPayload := &BroadcastPayload{}
-	if err := json.Unmarshal([]byte(buffer), &broadcastPayload); err != nil {
-		return check, err
+func (ca *Ca) CheckRequestBroadcastPayloadToBC(buffer string) bool {
+	fmt.Println("CheckRequestBroadcastPayloadToBC output")
+	fmt.Println(buffer)
+	response := responseBroadcastPayloadRegex.FindAllStringSubmatch(buffer, -1)
+	if len(response) > 0 {
+		broadcastPayload := &BroadcastPayload{}
+		if err := json.Unmarshal([]byte(response[0][0]), &broadcastPayload); err != nil {
+			fmt.Printf("unable to unmarshal CheckRequestBroadcastPayloadToBC result: %s", err.Error())
+		}
+		ca.BroadcastPayload = broadcastPayload
+
+		return true
 	}
 
-	ca.BroadcastPayload = broadcastPayload
-	if len(ca.BroadcastPayload.BroadcastPayloadHash) > 0 {
-		check = true
-	} else {
-		check = false
-	}
-
-	return check, nil
+	return false
 }

@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"github.com/d2r2/go-i2c"
 	"hlf-iot/config"
-	"hlf-iot/devices/led"
-	"hlf-iot/helpers/queuewrapper"
 	"math"
 	"time"
 )
@@ -61,107 +59,36 @@ type Barometer struct {
 	Pressure    float64 `json:"pressure"`
 	Altitude    float64 `json:"altitude"`
 	Timestamp   int64   `json:"timestamp"`
-	Led         *led.Led
 }
 
-func Init(ledBadData *led.Led) (*Barometer, error) {
+func Init() *Barometer {
 	i2cData, err := i2c.NewI2C(address, bus)
 	if err != nil {
-		return nil, err
+		fmt.Println(err)
 	}
 	barometer := &Barometer{}
 	barometer.i2c = i2cData
-	barometer.Led = ledBadData
-
-	return barometer, nil
+	return barometer
 }
 
-func (barometer *Barometer) Activate() error {
-	var err error
-
+func (barometer *Barometer) Activate() {
 	barometer.mode = BMP180_STANDARD
-
-	calAC1, err := barometer.readS16(BMP180_CAL_AC1)
-	if err != nil {
-		return err
-	}
-	barometer.calAC1 = int64(calAC1)
-
-	calAC2, err := barometer.readS16(BMP180_CAL_AC2)
-	if err != nil {
-		return err
-	}
-	barometer.calAC2 = int64(calAC2)
-
-	calAC3, err := barometer.readS16(BMP180_CAL_AC3)
-	if err != nil {
-		return err
-	}
-	barometer.calAC3 = int64(calAC3)
-
-	calAC4, err := barometer.readU16(BMP180_CAL_AC4)
-	if err != nil {
-		return err
-	}
-	barometer.calAC4 = int64(calAC4)
-
-	calAC5, err := barometer.readU16(BMP180_CAL_AC5)
-	if err != nil {
-		return err
-	}
-	barometer.calAC5 = int64(calAC5)
-
-	calAC6, err := barometer.readU16(BMP180_CAL_AC6)
-	if err != nil {
-		return err
-	}
-	barometer.calAC6 = int64(calAC6)
-
-	calB1, err := barometer.readS16(BMP180_CAL_B1)
-	if err != nil {
-		return err
-	}
-	barometer.calB1 = int64(calB1)
-
-	calB2, err := barometer.readS16(BMP180_CAL_B2)
-	if err != nil {
-		return err
-	}
-	barometer.calB2 = int64(calB2)
-
-	calMB, err := barometer.readS16(BMP180_CAL_MB)
-	if err != nil {
-		return err
-	}
-	barometer.calMB = int64(calMB)
-
-	calMC, err := barometer.readS16(BMP180_CAL_MC)
-	if err != nil {
-		return err
-	}
-	barometer.calMC = int64(calMC)
-
-	calMD, err := barometer.readS16(BMP180_CAL_MD)
-	if err != nil {
-		return err
-	}
-	barometer.calMD = int64(calMD)
-
-	return nil
+	barometer.calAC1 = int64(barometer.readS16(BMP180_CAL_AC1))
+	barometer.calAC2 = int64(barometer.readS16(BMP180_CAL_AC2))
+	barometer.calAC3 = int64(barometer.readS16(BMP180_CAL_AC3))
+	barometer.calAC4 = int64(barometer.readU16(BMP180_CAL_AC4))
+	barometer.calAC5 = int64(barometer.readU16(BMP180_CAL_AC5))
+	barometer.calAC6 = int64(barometer.readU16(BMP180_CAL_AC6))
+	barometer.calB1 = int64(barometer.readS16(BMP180_CAL_B1))
+	barometer.calB2 = int64(barometer.readS16(BMP180_CAL_B2))
+	barometer.calMB = int64(barometer.readS16(BMP180_CAL_MB))
+	barometer.calMC = int64(barometer.readS16(BMP180_CAL_MC))
+	barometer.calMD = int64(barometer.readS16(BMP180_CAL_MD))
 }
 
-func (barometer *Barometer) ReadPressure() (float64, error) {
-	var p float64
-
-	UT, err := barometer.ReadRawTemperature()
-	if err != nil {
-		return p, err
-	}
-
-	UP, err := barometer.ReadRawPressure()
-	if err != nil {
-		return p, err
-	}
+func (barometer *Barometer) ReadPressure() float64 {
+	UT := barometer.ReadRawTemperature()
+	UP := barometer.ReadRawPressure()
 
 	X1 := ((UT - barometer.calAC6) * barometer.calAC5) >> 15
 	X2 := (barometer.calMC << 11) / (X1 + barometer.calMD)
@@ -180,6 +107,7 @@ func (barometer *Barometer) ReadPressure() (float64, error) {
 	B4 := (barometer.calAC4 * (X3 + 32768)) >> 15
 	B7 := (UP - B3) * (50000 >> barometer.mode)
 
+	var p float64
 	if B7 < 0x80000000 {
 		p = float64(B7*2) / float64(B4)
 	} else {
@@ -192,105 +120,86 @@ func (barometer *Barometer) ReadPressure() (float64, error) {
 
 	p = p + float64((X1+X2+3791)>>4)
 
-	return p, nil
+	return p
 }
 
-func (barometer *Barometer) ReadTemperature() (float64, error) {
-	var temp float64
-
-	UT, err := barometer.ReadRawTemperature()
-	if err != nil {
-		return temp, err
-	}
+func (barometer *Barometer) ReadTemperature() float64 {
+	UT := barometer.ReadRawTemperature()
 
 	X1 := ((UT - barometer.calAC6) * barometer.calAC5) >> 15
 	X2 := (barometer.calMC << 11) / (X1 + barometer.calMD)
 	B5 := X1 + X2
-	temp = float64((B5+8)>>4) / 10.0
+	temp := float64((B5+8)>>4) / 10.0
 
-	return temp, nil
+	return temp
 }
 
-func (barometer *Barometer) ReadAltitude() (float64, error) {
-
-	pressure, err := barometer.ReadPressure()
-	if err != nil {
-		return pressure, err
-	}
-	pressure = float64(pressure)
-
+func (barometer *Barometer) ReadAltitude() float64 {
+	pressure := float64(barometer.ReadPressure())
 	altitude := 44330.0 * (1.0 - math.Pow(pressure/SEALEVEL_PA, (1.0/5.255)))
 
-	return altitude, nil
+	return altitude
 }
 
-func (barometer *Barometer) GetDataInJsonString() (*queuewrapper.SendData, error) {
-	var err error
-
+func (barometer *Barometer) GetDataInJsonString() *config.SendData {
 	now := time.Now()
 	barometer.Timestamp = int64(now.Unix())
-
-	barometer.Temperature, err = barometer.ReadTemperature()
-	if err != nil {
-		return nil, err
-	}
-
-	barometer.Pressure, err = barometer.ReadPressure()
-	if err != nil {
-		return nil, err
-	}
-	barometer.Pressure = barometer.Pressure / 100
-
-	barometer.Altitude, err = barometer.ReadAltitude()
-	if err != nil {
-		return nil, err
-	}
-
-	sendData := &queuewrapper.SendData{}
+	barometer.Temperature = barometer.ReadTemperature()
+	barometer.Pressure = barometer.ReadPressure() / 100
+	barometer.Altitude = barometer.ReadAltitude()
+	sendData := &config.SendData{}
 	sendData.Fcn = config.FCN_NAME_BAROMETER
 	sendData.Args = []string{fmt.Sprintf("%f", barometer.Pressure), fmt.Sprintf("%f", barometer.Altitude), fmt.Sprintf("%f", barometer.Temperature), fmt.Sprintf("%d", barometer.Timestamp)}
-	if barometer.Pressure*barometer.Altitude*barometer.Temperature == 0 {
-		barometer.Led.SetOn()
-	}
 
-	return sendData, nil
+	return sendData
 }
 
-func (barometer *Barometer) GetQueueElement() *queuewrapper.QueueStructure {
-	return &queuewrapper.QueueStructure{GetDataFcn: barometer.GetDataInJsonString}
+func (barometer *Barometer) GetQueueElement() *config.QueueStructure {
+	queueStructure := &config.QueueStructure{}
+	queueStructure.GetDataFcn = nil
+	queueStructure.CheckResponseFcn = config.CheckInsertToBC
+	queueStructure.JsonString = barometer.GetDataInJsonString()
+	queueStructure.HttpAction = config.GPRS_HTTPACTION_POST
+
+	return queueStructure
 }
 
-func (barometer *Barometer) readS16(reg byte) (int16, error) {
+func (barometer *Barometer) readS16(reg byte) int16 {
 	data, err := barometer.i2c.ReadRegS16BE(reg)
-
-	return data, err
-}
-
-func (barometer *Barometer) readU16(reg byte) (uint16, error) {
-	data, err := barometer.i2c.ReadRegU16BE(reg)
-
-	return data, err
-}
-
-func (barometer *Barometer) ReadByte(reg byte) ([]byte, error) {
-	data, _, err := barometer.i2c.ReadRegBytes(reg, 1)
-
-	return data, err
-}
-
-func (barometer *Barometer) WriteByte(reg byte, cmd byte) error {
-	err := barometer.i2c.WriteRegU8(reg, cmd)
-
-	return err
-}
-
-func (barometer *Barometer) ReadRawPressure() (int64, error) {
-	var raw int64
-
-	err := barometer.WriteByte(BMP180_CONTROL, byte(BMP180_READPRESSURECMD+(barometer.mode<<6)))
 	if err != nil {
-		return raw, err
+		fmt.Println(err)
 	}
+
+	return data
+}
+
+func (barometer *Barometer) readU16(reg byte) uint16 {
+	data, err := barometer.i2c.ReadRegU16BE(reg)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return data
+}
+
+func (barometer *Barometer) ReadByte(reg byte) []byte {
+	data, _, err := barometer.i2c.ReadRegBytes(reg, 1)
+	if err != nil {
+		fmt.Println(err)
+	}
+
+	return data
+}
+
+func (barometer *Barometer) WriteByte(reg byte, cmd byte) {
+	err := barometer.i2c.WriteRegU8(reg, cmd)
+	if err != nil {
+		fmt.Println(err)
+	}
+}
+
+func (barometer *Barometer) ReadRawPressure() int64 {
+	barometer.WriteByte(BMP180_CONTROL, byte(BMP180_READPRESSURECMD+(barometer.mode<<6)))
 
 	if barometer.mode == BMP180_ULTRALOWPOWER {
 		time.Sleep(5 * time.Millisecond)
@@ -302,50 +211,27 @@ func (barometer *Barometer) ReadRawPressure() (int64, error) {
 		time.Sleep(8 * time.Millisecond)
 	}
 
-	MSB, err := barometer.ReadByte(BMP180_PRESSUREDATA)
-	if err != nil {
-		return raw, err
-	}
-
-	LSB, err := barometer.ReadByte(BMP180_PRESSUREDATA + 1)
-	if err != nil {
-		return raw, err
-	}
-
-	XLSB, err := barometer.ReadByte(BMP180_PRESSUREDATA + 2)
-	if err != nil {
-		return raw, err
-	}
+	MSB := barometer.ReadByte(BMP180_PRESSUREDATA)
+	LSB := barometer.ReadByte(BMP180_PRESSUREDATA + 1)
+	XLSB := barometer.ReadByte(BMP180_PRESSUREDATA + 2)
 
 	MSBInt := int64(MSB[0])
 	LSBInt := int64(LSB[0])
 	XLSBInt := int64(XLSB[0])
 
-	raw = ((MSBInt << 16) + (LSBInt << 8) + XLSBInt) >> (8 - barometer.mode)
+	raw := ((MSBInt << 16) + (LSBInt << 8) + XLSBInt) >> (8 - barometer.mode)
 
-	return raw, nil
+	return raw
 }
 
-func (barometer *Barometer) ReadRawTemperature() (int64, error) {
-	var raw int64
-
-	err := barometer.WriteByte(BMP180_CONTROL, byte(BMP180_READTEMPCMD))
-	if err != nil {
-		return raw, err
-	}
+func (barometer *Barometer) ReadRawTemperature() int64 {
+	barometer.WriteByte(BMP180_CONTROL, byte(BMP180_READTEMPCMD))
 	time.Sleep(5 * time.Millisecond)
 
-	MSB, err := barometer.ReadByte(BMP180_TEMPDATA)
-	if err != nil {
-		return raw, err
-	}
+	MSB := barometer.ReadByte(BMP180_TEMPDATA)
+	LSB := barometer.ReadByte(BMP180_TEMPDATA + 1)
 
-	LSB, err := barometer.ReadByte(BMP180_TEMPDATA + 1)
-	if err != nil {
-		return raw, err
-	}
+	raw := (int64(MSB[0]) << 8) + int64(LSB[0])
 
-	raw = (int64(MSB[0]) << 8) + int64(LSB[0])
-
-	return raw, nil
+	return raw
 }

@@ -2,6 +2,7 @@ package serialwrapper
 
 import (
 	"bytes"
+	"log"
 	"time"
 
 	"github.com/tarm/serial"
@@ -15,59 +16,39 @@ const (
 )
 
 // Send comand through serial port
-func Send(s *serial.Port, command string) (int, error) {
+func Send(s *serial.Port, command string) int {
 	var buffer bytes.Buffer
-	var number int
-
-	_, err := buffer.WriteString(command)
-	if err != nil {
-		return number, err
-	}
-
-	_, err = buffer.WriteString("\n")
-	if err != nil {
-		return number, err
-	}
-
+	buffer.WriteString(command)
+	buffer.WriteString("\n")
 	b := []byte(buffer.String())
-	number, err = s.Write(b)
+	number, err := s.Write(b)
 	if err != nil {
-		return number, err
+		log.Fatal(err)
 	}
-
 	time.Sleep(100 * time.Millisecond)
-
-	return number, nil
+	return number
 }
 
 // Read serial output
-func Read(s *serial.Port) (string, bool, error) {
-	var output string
-	var eof bool
+func Read(s *serial.Port) (string, bool) {
+	eof := false
 	buf := make([]byte, maxRW)
-
 	n, err := s.Read(buf)
 	if err != nil {
-		return output, eof, err
+		log.Fatal(err)
 	}
-
 	if n < maxRW {
 		eof = true
 	}
-
-	output = string(buf[:n])
-
-	return output, eof, nil
+	return string(buf[:n]), eof
 }
 
 // Init serial port
-func Init() (*serial.Port, error) {
+func Init() *serial.Port {
 	c := &serial.Config{Name: serialDeviceFile, Baud: 9600}
-
 	s, err := serial.OpenPort(c)
 	if err != nil {
-		return nil, err
+		log.Fatal(err)
 	}
-
-	return s, nil
+	return s
 }

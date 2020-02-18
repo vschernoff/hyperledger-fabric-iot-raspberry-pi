@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"github.com/d2r2/go-dht"
 	"hlf-iot/config"
-	"hlf-iot/devices/led"
-	"hlf-iot/helpers/queuewrapper"
 	"time"
 )
 
@@ -18,37 +16,36 @@ type Humidity struct {
 	Humidity    float32 `json:"humidity"`
 	Temperature float32 `json:"temperature"`
 	Timestamp   int64   `json:"timestamp"`
-	Led         *led.Led
 }
 
-func Init(ledBadData *led.Led) *Humidity {
+func Init() *Humidity {
 	humidity := &Humidity{}
-	humidity.Led = ledBadData
 
 	return humidity
 }
 
-func (humidity *Humidity) GetDataInJsonString() (*queuewrapper.SendData, error) {
+func (humidity *Humidity) GetDataInJsonString() *config.SendData {
 	var err error
-
 	humidity.Temperature, humidity.Humidity, _, err =
 		dht.ReadDHTxxWithRetry(dht.DHT11, GPIO, false, retry)
 	if err != nil {
-		return nil, err
+		fmt.Println(err)
 	}
-
 	now := time.Now()
 	humidity.Timestamp = int64(now.Unix())
-	sendData := &queuewrapper.SendData{}
+	sendData := &config.SendData{}
 	sendData.Fcn = config.FCN_NAME_HUMIDITY
 	sendData.Args = []string{fmt.Sprintf("%f", humidity.Humidity), fmt.Sprintf("%f", humidity.Temperature), fmt.Sprintf("%d", humidity.Timestamp)}
-	if humidity.Humidity*humidity.Temperature == 0 {
-		humidity.Led.SetOn()
-	}
 
-	return sendData, nil
+	return sendData
 }
 
-func (humidity *Humidity) GetQueueElement() *queuewrapper.QueueStructure {
-	return &queuewrapper.QueueStructure{GetDataFcn: humidity.GetDataInJsonString}
+func (humidity *Humidity) GetQueueElement() *config.QueueStructure {
+	queueStructure := &config.QueueStructure{}
+	queueStructure.GetDataFcn = nil
+	queueStructure.CheckResponseFcn = config.CheckInsertToBC
+	queueStructure.JsonString = humidity.GetDataInJsonString()
+	queueStructure.HttpAction = config.GPRS_HTTPACTION_POST
+
+	return queueStructure
 }

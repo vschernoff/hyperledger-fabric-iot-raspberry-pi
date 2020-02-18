@@ -4,75 +4,71 @@ import (
 	"fmt"
 	"github.com/davecheney/gpio"
 	"hlf-iot/config"
-	"hlf-iot/helpers/queuewrapper"
-	"sync"
+	"hlf-iot/devices/gprs"
 	"time"
 )
 
+var currentState = false
+var currentTime = time.Now()
+var gprsSensor *gprs.Gprs
+
 type Light struct {
-	pin          gpio.Pin
-	Timestamp    int64                      `json:"timestamp"`
-	CurrentTime  time.Time                  `json:"currenttime"`
-	CurrentState bool                       `json:"currentstate"`
-	QueueEntity  *queuewrapper.QueueWrapper `json:"queueentity"`
+	pin       gpio.Pin
+	Light     uint  `json:"light"`
+	Timestamp int64 `json:"timestamp"`
 }
 
-var instance *Light
-var once sync.Once
-
-func GetInstance(queueInput *queuewrapper.QueueWrapper) (*Light, error) {
+func Init(gprsSensorInput *gprs.Gprs) *Light {
+	gprsSensor = gprsSensorInput
+	light := &Light{}
 	var err error
-	once.Do(func() {
-		instance = &Light{}
-		instance.CurrentTime = time.Now()
-		instance.CurrentState = false
-		instance.QueueEntity = queueInput
-		instance.pin, err = gpio.OpenPin(gpio.GPIO22, gpio.ModeInput)
-		instance.pin.Clear()
-	})
 
-	return instance, err
+	light.pin, err = gpio.OpenPin(gpio.GPIO22, gpio.ModeInput)
+	if err != nil {
+		fmt.Println(err)
+	}
+	light.pin.Clear()
+
+	return light
 }
 
 func callBackBoth() {
-	light, err := GetInstance(nil)
-	if err != nil {
-		panic(err.Error())
-	}
-
+	light := Init(gprsSensor)
+	newState := light.GetPinData()
 	newTime := time.Now()
-	if config.ItsTime(light.CurrentTime, newTime) {
-		light.CurrentTime = newTime
-		light.CurrentState = light.GetPinData()
-		light.QueueEntity.AddToQueue(light.GetQueueElement())
+	checkTime := config.ItsTime(currentTime, newTime)
+	if currentState != newState && checkTime {
+		currentState = newState
+		currentTime = newTime
+		gprsSensor.AddToQueue(light.GetQueueElement())
 	}
 }
 
-func (light *Light) SetCallBack() error {
-	err := light.pin.BeginWatch(gpio.EdgeBoth, callBackBoth)
-
-	return err
+func (light *Light) SetCallBack() {
+	light.pin.BeginWatch(gpio.EdgeBoth, callBackBoth)
 }
 
 func (light *Light) GetPinData() bool {
 	return light.pin.Get()
 }
 
-func (light *Light) GetDataInJsonString() (*queuewrapper.SendData, error) {
+func (light *Light) GetDataInJsonString() *config.SendData {
 	now := time.Now()
 	light.Timestamp = int64(now.Unix())
-	sendData := &queuewrapper.SendData{}
+	light.Light = config.B2i(currentState)
+	sendData := &config.SendData{}
 	sendData.Fcn = config.FCN_NAME_LIGHT
-	sendData.Args = []string{fmt.Sprintf("%d", config.B2i(light.CurrentState)), fmt.Sprintf("%d", light.Timestamp)}
+	sendData.Args = []string{fmt.Sprintf("%d", light.Light), fmt.Sprintf("%d", light.Timestamp)}
 
-	return sendData, nil
+	return sendData
 }
 
-func (light *Light) GetQueueElement() *queuewrapper.QueueStructure {
-	preparedData, err := light.GetDataInJsonString()
-	if err != nil {
-		panic(err.Error())
-	}
+func (light *Light) GetQueueElement() *config.QueueStructure {
+	queueStructure := &config.QueueStructure{}
+	queueStructure.GetDataFcn = nil
+	queueStructure.CheckResponseFcn = config.CheckInsertToBC
+	queueStructure.JsonString = light.GetDataInJsonString()
+	queueStructure.HttpAction = config.GPRS_HTTPACTION_POST
 
-	return &queuewrapper.QueueStructure{GetDataFcn: nil, PreparedData: preparedData}
+	return queueStructure
 }

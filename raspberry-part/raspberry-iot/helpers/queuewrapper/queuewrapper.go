@@ -59,7 +59,7 @@ func (queueWrapper *QueueWrapper) StartDaemon() {
 				fmt.Println()
 				fmt.Printf("Sending data: %s", sendData)
 				fmt.Println()
-				err = queueWrapper.PrepareRequest(sendData)
+				err = queueWrapper.PrepareRequest(sendData, config.GPRS_API_URL)
 				if err != nil {
 					panic(err.Error())
 				}
@@ -74,7 +74,7 @@ func (queueWrapper *QueueWrapper) StartDaemon() {
 	}
 }
 
-func (queueWrapper *QueueWrapper) PrepareRequest(data *SendData) error {
+func (queueWrapper *QueueWrapper) PrepareRequest(data *SendData, url string) error {
 	fabricCa := ca.GetInstance()
 	success := false
 

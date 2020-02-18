@@ -11,6 +11,7 @@ import (
 	"hlf-iot/devices/light"
 	"hlf-iot/devices/vibration"
 	"hlf-iot/helpers/ca"
+	"hlf-iot/helpers/httpwrapper"
 	"hlf-iot/helpers/queuewrapper"
 	"os"
 	"os/signal"
@@ -83,26 +84,75 @@ func execute() {
 
 	queue := queuewrapper.Init()
 
-	fmt.Printf("**************** Getting certificate from usb key storage ****************\n")
-	success, err := fabricCa.GetCertificateFromKeyStorage()
-	if err != nil {
-		fmt.Println("Error: ", err.Error())
-		if sensorsActivityGrid.LedBad {
-			ledBadSensorData.SetOn()
+	i := 0
+	success := false
+	for {
+		fmt.Printf("**************** Getting certificate from fabric CA, retry№ %d ****************\n", i)
+		i++
+
+		err := fabricCa.GeneratePrivateKey()
+		if err != nil {
+			if sensorsActivityGrid.LedBad {
+				ledBadSensorData.SetOn()
+			}
+			panic(err.Error())
 		}
-	}
-	if success && sensorsActivityGrid.LedSuccessEnroll {
-		ledSuccessEnroll.SetOn()
+
+		tbsCsrReq, err := fabricCa.TbsCsr()
+		if err != nil {
+			if sensorsActivityGrid.LedBad {
+				ledBadSensorData.SetOn()
+			}
+			panic(err.Error())
+		}
+
+		success, err = httpwrapper.PostReq(tbsCsrReq)
+		if err != nil {
+			if sensorsActivityGrid.LedBad {
+				ledBadSensorData.SetOn()
+			}
+			panic(err.Error())
+		}
+		if !success {
+			continue
+		}
+
+		err = fabricCa.SignTbsCsr()
+		if err != nil {
+			if sensorsActivityGrid.LedBad {
+				ledBadSensorData.SetOn()
+			}
+			panic(err.Error())
+		}
+
+		enrollCsr, err := fabricCa.EnrollCsr()
+		if err != nil {
+			if sensorsActivityGrid.LedBad {
+				ledBadSensorData.SetOn()
+			}
+			panic(err.Error())
+		}
+
+		success, err = httpwrapper.PostReq(enrollCsr)
+		if err != nil {
+			if sensorsActivityGrid.LedBad {
+				ledBadSensorData.SetOn()
+			}
+			panic(err.Error())
+		}
+		if !success {
+			continue
+		} else {
+			if sensorsActivityGrid.LedSuccessEnroll {
+				ledSuccessEnroll.SetOn()
+			}
+			break
+		}
+
+		time.Sleep(1000 * time.Millisecond)
 	}
 
-	humiditySensor, err := humidity.Init(ledBadSensorData)
-	if err != nil {
-		fmt.Println("Error: ", err.Error())
-		sensorsActivityGrid.HumiditySensor = false
-		if sensorsActivityGrid.LedBad {
-			ledBadSensorData.SetOn()
-		}
-	}
+	humiditySensor := humidity.Init(ledBadSensorData)
 
 	barometerSensor, err := barometer.Init(ledBadSensorData)
 	if err != nil {
@@ -185,7 +235,7 @@ func execute() {
 	go queue.StartDaemon()
 
 	// Gathering data in cycle
-	i := 0
+	i = 0
 	for {
 		fmt.Printf("**************** UPDATES %d ****************\n", i)
 

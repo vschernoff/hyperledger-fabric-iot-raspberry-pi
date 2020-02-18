@@ -21,16 +21,11 @@ type Humidity struct {
 	Led         *led.Led
 }
 
-func Init(ledBadData *led.Led) (*Humidity, error) {
+func Init(ledBadData *led.Led) *Humidity {
 	humidity := &Humidity{}
 	humidity.Led = ledBadData
 
-	_, err := humidity.GetDataInJsonString()
-	if err != nil {
-		return nil, err
-	}
-
-	return humidity, nil
+	return humidity
 }
 
 func (humidity *Humidity) GetDataInJsonString() (*queuewrapper.SendData, error) {

@@ -9,9 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"hlf-iot/config"
-	"hlf-iot/helpers/fswrapper"
 	"hlf-iot/helpers/httpwrapper"
-	"net/url"
 	"sync"
 )
 
@@ -354,49 +352,6 @@ func (ca *Ca) CheckRequestBroadcastPayloadToBC(buffer string) (bool, error) {
 		check = true
 	} else {
 		check = false
-	}
-
-	return check, nil
-}
-
-func (ca *Ca) GetCertificateFromKeyStorage() (bool, error) {
-	var check bool
-
-	keys, err := fswrapper.GetFilesDataFromKeyStorage(config.CERTIFICATE_FILE_EXTENSION)
-	if err != nil {
-		return check, err
-	}
-
-	for _, key := range keys {
-		responseJson, err := httpwrapper.GetReq(config.API_BASE_URL + "channels/" + config.CHANNEL_ID + "/chaincodes/" + config.CHAINCODE_ID + "?fcn=" + config.FCN_NAME_CHECK_IOT_CERTIFICATE + "&peer=" + config.EndorsementPeers[0] + "&args=" + url.QueryEscape(key.Certificate))
-		if err != nil {
-			return check, err
-		}
-
-		var result map[string]interface{}
-		json.Unmarshal([]byte(responseJson), &result)
-		response := result["result"].(float64)
-
-		if response == 1 {
-			userCertificate := &UserCertificate{}
-			userCertificate.Certificate = key.Certificate
-			ca.UserCertificate = userCertificate
-
-			privateKey, err := config.HexToPrivateKey(key.PrivateKeyHash)
-			if err != nil {
-				return check, err
-			}
-
-			fmt.Println("Certificate")
-			fmt.Println(key.Certificate)
-			fmt.Println("PrivateKeyHash")
-			fmt.Println(key.PrivateKeyHash)
-
-			ca.PrivateKey = privateKey
-			check = true
-
-			break
-		}
 	}
 
 	return check, nil
